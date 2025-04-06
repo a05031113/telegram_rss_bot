@@ -205,7 +205,7 @@ launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
 如果 bot 沒有響應：
 1. 檢查 bot 是否正在運行：`ps aux | grep "python telegram_rss_bot.py"`
 2. 檢查日誌文件：`cat bot.log bot.error.log`
-3. 重新啟動 bot：
+3. 重新啟動：
    ```bash
    launchctl unload ~/Library/LaunchAgents/com.telegram.rssbot.plist
    launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
@@ -238,4 +238,44 @@ launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
 
 - 訂閱資訊：`rss_bot.db`
 - 日誌檔案：`bot.log`
-- 系統服務設定：`~/Library/LaunchAgents/com.telegram.rssbot.plist` 
+- 系統服務設定：`~/Library/LaunchAgents/com.telegram.rssbot.plist`
+
+## 服務狀態確認
+
+### 檢查 launchd 服務狀態
+1. 檢查服務是否已載入：
+```bash
+launchctl list | grep telegram
+```
+輸出說明：
+- 如果有輸出（例如：`57448   0   com.telegram.rssbot`），表示服務已載入
+- 第一個數字是 PID，如果是 `-` 表示服務未運行
+- 第二個數字是最後一次退出狀態，`0` 表示正常
+
+2. 檢查日誌文件：
+```bash
+cat bot.log bot.error.log
+```
+這可以查看 bot 的運行日誌和錯誤訊息。
+
+3. 檢查進程：
+```bash
+ps aux | grep "[p]ython telegram_rss_bot.py"
+```
+這可以查看 bot 程序是否正在運行。
+
+### 服務管理
+1. 停止服務：
+```bash
+launchctl unload ~/Library/LaunchAgents/com.telegram.rssbot.plist
+```
+
+2. 啟動服務：
+```bash
+launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
+```
+
+3. 重新啟動服務：
+```bash
+launchctl unload ~/Library/LaunchAgents/com.telegram.rssbot.plist && launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
+``` 

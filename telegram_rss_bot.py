@@ -453,7 +453,7 @@ def main():
     
     # 啟動排程器
     job_queue = updater.job_queue
-    job_queue.run_repeating(check_feeds, interval=900, first=0)  # 每15分鐘檢查一次
+    job_queue.run_repeating(check_feeds, interval=1200, first=0)  # 每15分鐘檢查一次
     
     # 啟動 bot
     updater.start_polling()
