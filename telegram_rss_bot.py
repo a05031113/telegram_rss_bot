@@ -12,6 +12,9 @@ import urllib.request
 import urllib.error
 import sqlite3
 from contextlib import contextmanager
+import sys
+from telegram import Update
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # 資料庫設定
 DB_FILE = 'rss_bot.db'
+
+# PID 文件路徑
+PID_FILE = 'bot.pid'
 
 @contextmanager
 def get_db():
@@ -42,12 +48,10 @@ def init_db():
         # 建立訂閱表
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            feed_url TEXT NOT NULL,
-            feed_title TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(user_id, feed_url)
+            chat_id INTEGER,
+            feed_url TEXT,
+            last_entry TEXT,
+            PRIMARY KEY (chat_id, feed_url)
         )
         ''')
         
@@ -61,12 +65,13 @@ def init_db():
         )
         ''')
         conn.commit()
+        logger.info("資料庫初始化完成")
 
 def get_user_subscriptions(user_id):
     """獲取用戶的訂閱列表"""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT feed_url, feed_title FROM subscriptions WHERE user_id = ?', (user_id,))
+        cursor.execute('SELECT feed_url, last_entry FROM subscriptions WHERE chat_id = ?', (user_id,))
         return cursor.fetchall()
 
 def add_subscription(user_id, feed_url, feed_title):
@@ -75,8 +80,8 @@ def add_subscription(user_id, feed_url, feed_title):
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'INSERT INTO subscriptions (user_id, feed_url, feed_title) VALUES (?, ?, ?)',
-                (user_id, feed_url, feed_title)
+                'INSERT INTO subscriptions (chat_id, feed_url, last_entry) VALUES (?, ?, ?)',
+                (user_id, feed_url, '')
             )
             conn.commit()
             return True
@@ -88,7 +93,7 @@ def remove_subscription(user_id, feed_url):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            'DELETE FROM subscriptions WHERE user_id = ? AND feed_url = ?',
+            'DELETE FROM subscriptions WHERE chat_id = ? AND feed_url = ?',
             (user_id, feed_url)
         )
         conn.commit()
@@ -132,275 +137,329 @@ def fetch_feed(url):
         logger.error(f"獲取 feed 時發生錯誤: {str(e)}")
         raise Exception(f"獲取 feed 時發生錯誤: {str(e)}")
 
-def start(update, context):
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
+def start(update: Update, context: CallbackContext) -> None:
+    """處理 /start 命令"""
     update.message.reply_text(
-        f'Hi {user.first_name}! I can help you track RSS feeds.\n\n'
-        'Commands:\n'
-        '/subscribe <url> - Subscribe to an RSS feed\n'
-        '/list - List all your subscriptions\n'
-        '/unsubscribe <number> - Unsubscribe from a feed\n'
-        '/check - Check for new posts now'
+        '歡迎使用 RSS Feed Bot！\n'
+        '使用 /subscribe <RSS feed URL> 來訂閱一個 feed\n'
+        '使用 /list 來查看您的訂閱\n'
+        '使用 /unsubscribe 來取消訂閱'
     )
+    logger.info(f"用戶 {update.effective_user.id} 開始使用 bot")
 
-def subscribe(update, context):
-    """Subscribe to an RSS feed."""
+def show_id(update, context):
+    """顯示用戶的 ID"""
+    user = update.effective_user
+    update.message.reply_text(f'您的用戶 ID 是：{user.id}')
+
+def subscribe(update: Update, context: CallbackContext) -> None:
+    """處理 /subscribe 命令"""
     if not context.args:
-        update.message.reply_text('請提供 RSS feed 的 URL：/subscribe <url>')
+        update.message.reply_text('請提供 RSS feed URL，例如：/subscribe https://example.com/feed.xml')
         return
 
     feed_url = context.args[0]
-    user_id = update.effective_user.id
-    
+    chat_id = update.effective_chat.id
+
     try:
-        logger.info(f"嘗試解析 feed: {feed_url}")
+        # 禁用 SSL 驗證
+        ssl._create_default_https_context = ssl._create_unverified_context
         feed = fetch_feed(feed_url)
         
         if feed.bozo:
-            error_msg = f"Feed 解析錯誤: {feed.bozo_exception}"
-            logger.error(error_msg)
-            raise Exception(error_msg)
-        
-        if not hasattr(feed, 'feed') or not hasattr(feed.feed, 'title'):
-            error_msg = "Feed 格式不正確：缺少必要的 feed 資訊"
-            logger.error(error_msg)
-            raise Exception(error_msg)
-        
-        # Store feed title for later reference
-        feed_title = feed.feed.title
-        logger.info(f"成功解析 feed: {feed_title}")
-        
-        # Add subscription to database
-        if add_subscription(user_id, feed_url, feed_title):
-            # Initialize the tracking of last entries for this feed
-            feed_hash = hashlib.md5(feed_url.encode()).hexdigest()
-            if feed.entries:
-                last_entry_id = feed.entries[0].get('id', feed.entries[0].get('link', ''))
-                update_last_entry(feed_hash, last_entry_id)
-            
-            update.message.reply_text(f'成功訂閱：{feed_title}')
-        else:
-            update.message.reply_text(f'您已經訂閱了這個 feed。')
-            
+            update.message.reply_text('無法解析此 RSS feed，請確認 URL 是否正確')
+            logger.error(f"無法解析 feed: {feed_url}, 錯誤: {feed.bozo_exception}")
+            return
+
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT OR REPLACE INTO subscriptions (chat_id, feed_url, last_entry) VALUES (?, ?, ?)',
+                         (chat_id, feed_url, ''))
+            conn.commit()
+
+        update.message.reply_text(f'成功訂閱 {feed_url}')
+        logger.info(f"用戶 {chat_id} 訂閱了 {feed_url}")
+
     except Exception as e:
-        logger.error(f"訂閱 feed 時發生錯誤: {str(e)}")
-        update.message.reply_text(f'訂閱 feed 時發生錯誤：{str(e)}\n請確認 URL 是否為有效的 RSS feed。')
+        update.message.reply_text('訂閱失敗，請確認 URL 是否正確')
+        logger.error(f"訂閱失敗: {str(e)}")
 
-def list_subscriptions(update, context):
-    """List all subscribed feeds."""
-    user_id = update.effective_user.id
-    subscriptions = get_user_subscriptions(user_id)
+def list_subscriptions(update: Update, context: CallbackContext) -> None:
+    """處理 /list 命令"""
+    chat_id = update.effective_chat.id
     
-    if not subscriptions:
-        update.message.reply_text('您目前沒有任何訂閱。')
-        return
-    
-    message = '您的訂閱列表：\n\n'
-    for i, (feed_url, feed_title) in enumerate(subscriptions, 1):
-        message += f'{i}. {feed_title or "未知標題"}\n{feed_url}\n\n'
-    
-    update.message.reply_text(message)
-
-def unsubscribe(update, context):
-    """Unsubscribe from a feed by index number."""
-    if not context.args:
-        update.message.reply_text('請提供要取消訂閱的 feed 編號：/unsubscribe <編號>')
-        return
-    
-    try:
-        index = int(context.args[0]) - 1
-        user_id = update.effective_user.id
-        subscriptions = get_user_subscriptions(user_id)
-        
-        if not subscriptions:
-            update.message.reply_text('您目前沒有任何訂閱。')
-            return
-        
-        if index < 0 or index >= len(subscriptions):
-            update.message.reply_text('無效的訂閱編號。使用 /list 查看您的訂閱列表。')
-            return
-        
-        feed_url = subscriptions[index][0]
-        if remove_subscription(user_id, feed_url):
-            update.message.reply_text(f'已取消訂閱：{subscriptions[index][1] or feed_url}')
-        else:
-            update.message.reply_text('取消訂閱失敗，請稍後再試。')
-    except ValueError:
-        update.message.reply_text('請提供有效的編號：/unsubscribe <編號>')
-
-def check_feeds(context: CallbackContext):
-    """Check all feeds for updates and notify users."""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT DISTINCT feed_url FROM subscriptions')
-        all_feeds = cursor.fetchall()
-        
-        for (feed_url,) in all_feeds:
-            try:
-                feed = fetch_feed(feed_url)
-                feed_hash = hashlib.md5(feed_url.encode()).hexdigest()
-                
-                # Get the last processed entry for this feed
-                last_entry_id = get_last_entry(feed_hash)
-                
-                if not last_entry_id and feed.entries:
-                    # First time checking this feed
-                    last_entry_id = feed.entries[0].get('id', feed.entries[0].get('link', ''))
-                    update_last_entry(feed_hash, last_entry_id)
-                    continue
-                
-                # Find new entries
-                new_entries = []
-                for entry in feed.entries:
-                    entry_id = entry.get('id', entry.get('link', ''))
-                    if entry_id == last_entry_id:
-                        break
-                    new_entries.append(entry)
-                
-                # Update the last entry ID if we have new entries
-                if new_entries and feed.entries:
-                    update_last_entry(feed_hash, feed.entries[0].get('id', feed.entries[0].get('link', '')))
-                
-                # Get all users subscribed to this feed
-                cursor.execute('SELECT user_id FROM subscriptions WHERE feed_url = ?', (feed_url,))
-                subscribers = cursor.fetchall()
-                
-                # Send updates to all subscribers
-                for entry in reversed(new_entries):
-                    title = entry.get('title', 'No title')
-                    link = entry.get('link', '')
-                    published = entry.get('published', 'Unknown date')
-                    
-                    if 'summary' in entry:
-                        summary = entry.summary
-                    elif 'description' in entry:
-                        summary = entry.description
-                    else:
-                        summary = ''
-                    
-                    summary = summary.replace('<p>', '').replace('</p>', '\n\n')
-                    summary = summary[:200] + '...' if len(summary) > 200 else summary
-                    
-                    message = f"<b>{feed.feed.title}</b>\n\n"
-                    message += f"<b>{title}</b>\n"
-                    message += f"{published}\n\n"
-                    message += f"{summary}\n\n"
-                    message += f"<a href='{link}'>閱讀更多</a>"
-                    
-                    for (user_id,) in subscribers:
-                        try:
-                            context.bot.send_message(
-                                chat_id=user_id,
-                                text=message,
-                                parse_mode=telegram.ParseMode.HTML,
-                                disable_web_page_preview=False
-                            )
-                        except Exception as e:
-                            logger.error(f"發送更新給用戶 {user_id} 時發生錯誤: {e}")
-                            
-            except Exception as e:
-                logger.error(f"檢查 feed {feed_url} 時發生錯誤: {e}")
+        cursor.execute('SELECT feed_url FROM subscriptions WHERE chat_id = ?', (chat_id,))
+        subscriptions = cursor.fetchall()
 
-def check_now(update, context):
-    """Manually check feeds for a specific user."""
-    user_id = update.effective_user.id
-    
-    if user_id not in subscriptions or not subscriptions[user_id]:
-        update.message.reply_text('You have no active subscriptions to check.')
+    if not subscriptions:
+        update.message.reply_text('您目前沒有任何訂閱')
         return
+
+    message = '您的訂閱列表：\n\n'
+    for sub in subscriptions:
+        message += f'- {sub[0]}\n'
     
-    update.message.reply_text('Checking your feeds...')
+    update.message.reply_text(message)
+    logger.info(f"用戶 {chat_id} 查看了訂閱列表")
+
+def unsubscribe(update: Update, context: CallbackContext) -> None:
+    """處理 /unsubscribe 命令"""
+    if not context.args:
+        update.message.reply_text('請提供要取消訂閱的 RSS feed URL')
+        return
+
+    feed_url = context.args[0]
+    chat_id = update.effective_chat.id
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM subscriptions WHERE chat_id = ? AND feed_url = ?',
+                      (chat_id, feed_url))
+        conn.commit()
+
+    update.message.reply_text(f'已取消訂閱 {feed_url}')
+    logger.info(f"用戶 {chat_id} 取消訂閱了 {feed_url}")
+
+def send_user_update(context: CallbackContext, feed_title, entry):
+    """發送更新給指定用戶"""
+    user_id = os.getenv('USER_ID')
+    if not user_id:
+        logger.warning("未設定用戶 ID，無法發送更新")
+        return
+
+    try:
+        title = entry.get('title', '無標題')
+        link = entry.get('link', '')
+        published = entry.get('published', '未知日期')
+        
+        if 'summary' in entry:
+            summary = entry.summary
+        elif 'description' in entry:
+            summary = entry.description
+        else:
+            summary = ''
+        
+        summary = summary.replace('<p>', '').replace('</p>', '\n\n')
+        summary = summary[:200] + '...' if len(summary) > 200 else summary
+        
+        message = f"📢 <b>{feed_title}</b>\n\n"
+        message += f"<b>{title}</b>\n"
+        message += f"📅 {published}\n\n"
+        message += f"{summary}\n\n"
+        message += f"🔗 <a href='{link}'>閱讀更多</a>"
+        
+        context.bot.send_message(
+            chat_id=user_id,
+            text=message,
+            parse_mode=telegram.ParseMode.HTML,
+            disable_web_page_preview=False
+        )
+    except Exception as e:
+        logger.error(f"發送用戶更新時發生錯誤: {e}")
+
+def check_feeds(context: CallbackContext) -> None:
+    """檢查所有訂閱的 feed 是否有更新"""
+    logger.info("開始檢查 feed 更新")
     
-    # Create a temporary context just for this user
-    temp_context = {'user_id': user_id}
-    
-    # Call the check_feeds function for just this user
-    for feed_url in subscriptions[user_id]:
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT chat_id, feed_url, last_entry FROM subscriptions')
+        subscriptions = cursor.fetchall()
+
+    # 禁用 SSL 驗證
+    ssl._create_default_https_context = ssl._create_unverified_context
+
+    for chat_id, feed_url, last_entry in subscriptions:
         try:
-            feed = feedparser.parse(feed_url)
-            feed_hash = hashlib.md5(feed_url.encode()).hexdigest()
+            feed = fetch_feed(feed_url)
             
-            # If there are entries, send the latest one
-            if feed.entries:
-                entry = feed.entries[0]
-                title = entry.get('title', 'No title')
-                link = entry.get('link', '')
-                published = entry.get('published', 'Unknown date')
+            if feed.bozo:
+                logger.error(f"解析 feed 失敗: {feed_url}, 錯誤: {feed.bozo_exception}")
+                continue
+
+            if not feed.entries:
+                continue
+
+            latest_entry = feed.entries[0]
+            latest_entry_id = latest_entry.get('id', latest_entry.get('link', ''))
+
+            if latest_entry_id and latest_entry_id != last_entry:
+                # 更新最後一條記錄
+                with get_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('UPDATE subscriptions SET last_entry = ? WHERE chat_id = ? AND feed_url = ?',
+                                 (latest_entry_id, chat_id, feed_url))
+                    conn.commit()
+
+                # 發送更新通知
+                title = latest_entry.get('title', '無標題')
+                link = latest_entry.get('link', '')
+                published = latest_entry.get('published', '未知日期')
                 
-                # Try to get a summary or content
-                if 'summary' in entry:
-                    summary = entry.summary
-                elif 'description' in entry:
-                    summary = entry.description
+                # 獲取摘要或內容
+                if 'summary' in latest_entry:
+                    summary = latest_entry.summary
+                elif 'description' in latest_entry:
+                    summary = latest_entry.description
                 else:
                     summary = ''
                 
-                # Remove HTML tags from summary (very basic approach)
-                summary = summary.replace('<p>', '').replace('</p>', '\n\n')
-                summary = summary[:200] + '...' if len(summary) > 200 else summary
+                # 移除 HTML 標籤
+                summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
+                summary = summary.replace('\n', ' ').strip()  # 移除換行符
+                summary = ' '.join(summary.split())  # 移除多餘的空白
+                summary = summary[:500] + '...' if len(summary) > 500 else summary
                 
-                message = f"<b>{feed.feed.title}</b>\n\n"
+                message = f"📢 <b>{feed.feed.title}</b>\n\n"
                 message += f"<b>{title}</b>\n"
-                message += f"{published}\n\n"
+                message += f"📅 {published}\n\n"
                 message += f"{summary}\n\n"
-                message += f"<a href='{link}'>Read more</a>"
+                message += f"🔗 <a href='{link}'>閱讀更多</a>"
                 
-                context.bot.send_message(
-                    chat_id=user_id,
-                    text=message,
-                    parse_mode=telegram.ParseMode.HTML,
-                    disable_web_page_preview=False
-                )
+                try:
+                    context.bot.send_message(
+                        chat_id=chat_id,
+                        text=message,
+                        parse_mode=telegram.ParseMode.HTML,
+                        disable_web_page_preview=False
+                    )
+                    logger.info(f"已發送更新通知給用戶 {chat_id}")
+                except Exception as e:
+                    logger.error(f"發送消息失敗: {str(e)}")
+
         except Exception as e:
-            logger.error(f"Error checking feed {feed_url}: {e}")
-            context.bot.send_message(
-                chat_id=user_id,
-                text=f"Error checking feed: {feed_url}\nError: {str(e)}"
-            )
-    
-    update.message.reply_text('Feed check completed.')
+            logger.error(f"檢查 feed 時出錯: {str(e)}")
 
-def error(update, context):
-    """Log errors caused by updates."""
-    logger.warning(f'Update "{update}" caused error "{context.error}"')
-
-def main():
-    """Start the bot."""
-    # Initialize database
-    init_db()
+def check_now(update, context):
+    """手動檢查特定用戶的 feed"""
+    user_id = update.effective_user.id
     
-    # Get the API token from environment variables
-    token = os.getenv('TELEGRAM_TOKEN')
-    if not token:
-        logger.error("在環境變數中找不到 TELEGRAM_TOKEN！")
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT feed_url FROM subscriptions WHERE chat_id = ?', (user_id,))
+        user_subscriptions = cursor.fetchall()
+    
+    if not user_subscriptions:
+        update.message.reply_text('您目前沒有任何訂閱。')
         return
     
-    # Create the Updater and pass it your bot's token
+    update.message.reply_text('正在檢查您的訂閱...')
+    
+    for feed_url in user_subscriptions:
+        try:
+            feed = fetch_feed(feed_url[0])
+            
+            if feed.bozo:
+                logger.error(f"解析 feed 失敗: {feed_url[0]}, 錯誤: {feed.bozo_exception}")
+                continue
+
+            if not feed.entries:
+                continue
+
+            entry = feed.entries[0]
+            title = entry.get('title', '無標題')
+            link = entry.get('link', '')
+            published = entry.get('published', '未知日期')
+            
+            # 處理摘要或內容
+            if 'summary' in entry:
+                summary = entry.summary
+            elif 'description' in entry:
+                summary = entry.description
+            else:
+                summary = ''
+            
+            # 清理 HTML 標籤
+            summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
+            summary = summary.replace('\n', ' ').strip()  # 移除換行符
+            summary = ' '.join(summary.split())  # 移除多餘的空白
+            summary = summary[:500] + '...' if len(summary) > 500 else summary
+            
+            message = f"📢 <b>{feed.feed.title}</b>\n\n"
+            message += f"<b>{title}</b>\n"
+            message += f"📅 {published}\n\n"
+            message += f"{summary}\n\n"
+            message += f"🔗 <a href='{link}'>閱讀更多</a>"
+            
+            context.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode=telegram.ParseMode.HTML,
+                disable_web_page_preview=False
+            )
+        except Exception as e:
+            logger.error(f"檢查 feed 時出錯: {str(e)}")
+            context.bot.send_message(
+                chat_id=user_id,
+                text=f"檢查 feed 時出錯: {feed_url[0]}\n錯誤: {str(e)}"
+            )
+    
+    update.message.reply_text('檢查完成。')
+
+def error(update: Update, context: CallbackContext) -> None:
+    """處理錯誤"""
+    logger.warning(f'Update "{update}" caused error "{context.error}"')
+
+def check_pid():
+    if os.path.exists(PID_FILE):
+        with open(PID_FILE, 'r') as f:
+            old_pid = f.read().strip()
+            if old_pid:
+                # 檢查進程是否仍在運行
+                try:
+                    os.kill(int(old_pid), 0)
+                    print(f"Bot is already running with PID {old_pid}")
+                    sys.exit(1)
+                except OSError:
+                    pass
+    # 寫入當前 PID
+    with open(PID_FILE, 'w') as f:
+        f.write(str(os.getpid()))
+
+def cleanup():
+    # 刪除 PID 文件
+    try:
+        os.remove(PID_FILE)
+    except OSError:
+        pass
+
+def main():
+    """主函數"""
+    # 初始化資料庫
+    init_db()
+    
+    # 獲取環境變數
+    token = os.getenv('TELEGRAM_TOKEN')
+    if not token:
+        logger.error("未設置 TELEGRAM_TOKEN 環境變數")
+        sys.exit(1)
+    
+    # 創建 Updater 和 Dispatcher
     updater = Updater(token)
+    dispatcher = updater.dispatcher
     
-    # Get the dispatcher to register handlers
-    dp = updater.dispatcher
+    # 註冊命令處理器
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("showid", show_id))
+    dispatcher.add_handler(CommandHandler("subscribe", subscribe))
+    dispatcher.add_handler(CommandHandler("list", list_subscriptions))
+    dispatcher.add_handler(CommandHandler("unsubscribe", unsubscribe))
+    dispatcher.add_handler(CommandHandler("check", check_now))
     
-    # Register command handlers
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("subscribe", subscribe))
-    dp.add_handler(CommandHandler("list", list_subscriptions))
-    dp.add_handler(CommandHandler("unsubscribe", unsubscribe))
-    dp.add_handler(CommandHandler("check", check_now))
+    # 註冊錯誤處理器
+    dispatcher.add_error_handler(error)
     
-    # Register error handler
-    dp.add_error_handler(error)
-    
-    # Start the scheduled job to check feeds every 15 minutes
+    # 啟動排程器
     job_queue = updater.job_queue
-    job_queue.run_repeating(check_feeds, interval=15*60, first=0)
+    job_queue.run_repeating(check_feeds, interval=900, first=0)  # 每15分鐘檢查一次
     
-    # Start the Bot
+    # 啟動 bot
     updater.start_polling()
     logger.info("Bot 已啟動")
     
-    # Run the bot until you press Ctrl-C
+    # 保持 bot 運行
     updater.idle()
 
 if __name__ == '__main__':
