@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram RSS Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=yanghaoyu
+WorkingDirectory=/Users/yanghaoyu/Documents/Telegram_Bot/RSS
+Environment="PATH=/Users/yanghaoyu/Documents/Telegram_Bot/RSS/venv/bin"
+ExecStart=/Users/yanghaoyu/Documents/Telegram_Bot/RSS/venv/bin/python telegram_rss_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target 
