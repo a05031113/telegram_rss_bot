@@ -19,15 +19,28 @@ import re
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
+# 資料庫設定
+DB_FILE = os.getenv('DB_FILE', 'rss_bot.db')
+
+# 日誌設定
+LOG_DIR = os.getenv('LOG_DIR', 'logs')
+LOG_FILE = os.path.join(LOG_DIR, 'bot.log')
+ERROR_LOG_FILE = os.path.join(LOG_DIR, 'bot.error.log')
+
+# 確保日誌目錄存在
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# 配置日誌
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.FileHandler(ERROR_LOG_FILE),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
-
-# 資料庫設定
-DB_FILE = 'rss_bot.db'
 
 # PID 文件路徑
 PID_FILE = 'bot.pid'
@@ -377,11 +390,21 @@ def check_now(update, context):
             summary = ' '.join(summary.split())  # 移除多餘的空白
             summary = summary[:500] + '...' if len(summary) > 500 else summary
             
+            # 移除網址
+            url_pattern = r'https?://\S+'
+            urls = re.findall(url_pattern, summary)
+            summary = re.sub(url_pattern, '', summary)
+            
             message = f"📢 <b>{feed.feed.title}</b>\n\n"
             message += f"<b>{title}</b>\n"
             message += f"📅 {published}\n\n"
             message += f"{summary}\n\n"
-            message += f"🔗 <a href='{link}'>閱讀更多</a>"
+            
+            # 如果有網址，單獨顯示
+            if urls:
+                message += "🔗 相關連結：\n"
+                for url in urls:
+                    message += f"- {url}\n"
             
             context.bot.send_message(
                 chat_id=user_id,
@@ -453,7 +476,7 @@ def main():
     
     # 啟動排程器
     job_queue = updater.job_queue
-    job_queue.run_repeating(check_feeds, interval=1200, first=0)  # 每15分鐘檢查一次
+    job_queue.run_repeating(check_feeds, interval=1200, first=0)  # 每20分鐘檢查一次
     
     # 啟動 bot
     updater.start_polling()
