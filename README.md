@@ -2,6 +2,23 @@
 
 這是一個 Telegram 機器人，用於訂閱和接收 RSS feed 更新。
 
+## 前置準備
+
+### 1. 創建 Telegram Bot
+
+1. 在 Telegram 中搜索並聯繫 [@BotFather](https://t.me/BotFather)
+2. 發送 `/newbot` 命令
+3. 按照提示設置：
+   - 輸入機器人名稱（例如：RSS Bot）
+   - 輸入機器人用戶名（必須以 bot 結尾，例如：rss_bot）
+4. 保存 BotFather 提供的 API Token
+
+### 2. 獲取您的用戶 ID
+
+1. 在 Telegram 中搜索並聯繫 [@userinfobot](https://t.me/userinfobot)
+2. 發送任意消息
+3. 保存機器人回覆中的 `Id` 值
+
 ## 功能
 
 - 訂閱 RSS feed
@@ -21,7 +38,7 @@
 
 ## 部署方式
 
-### 方式一：Docker 部署（推薦）
+### Docker 部署
 
 1. 安裝必要軟體：
 ```bash
@@ -45,6 +62,7 @@ cd <專案目錄>
 ```bash
 # 創建 .env 文件
 echo "TELEGRAM_TOKEN=your_bot_token" > .env
+echo "USER_ID=your_user_id" >> .env
 ```
 
 4. 創建必要的目錄：
@@ -63,67 +81,15 @@ Docker 相關命令：
 - 重新啟動：`docker-compose restart`
 - 查看容器狀態：`docker-compose ps`
 
-### 方式二：直接部署
+## 使用說明
 
-1. 克隆此倉庫：
-```bash
-git clone <您的專案倉庫URL>
-cd <專案目錄>
-```
-
-2. 創建並激活虛擬環境：
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# 或
-.\venv\Scripts\activate  # Windows
-```
-
-3. 安裝依賴：
-```bash
-pip install -r requirements.txt
-```
-
-4. 創建 `.env` 文件並設置環境變數：
-```
-TELEGRAM_TOKEN=your_bot_token
-```
-
-### 方式三：macOS 自動啟動
-
-1. 創建 `launchd` 配置文件：
-```bash
-mkdir -p ~/Library/LaunchAgents
-cat > ~/Library/LaunchAgents/com.telegram.rssbot.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.telegram.rssbot</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>-c</string>
-        <string>cd /path/to/your/bot && source venv/bin/activate && python telegram_rss_bot.py</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/path/to/your/bot/bot.log</string>
-    <key>StandardErrorPath</key>
-    <string>/path/to/your/bot/bot.error.log</string>
-</dict>
-</plist>
-EOF
-```
-
-2. 加載服務：
-```bash
-launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
-```
+1. 在 Telegram 中搜索您的機器人（使用之前設置的用戶名）
+2. 發送 `/start` 命令開始使用
+3. 使用以下命令管理 RSS 訂閱：
+   - `/subscribe <URL>` - 訂閱新的 RSS feed
+   - `/list` - 查看當前訂閱列表
+   - `/unsubscribe <URL>` - 取消訂閱
+   - `/check` - 手動檢查更新
 
 ## 文件說明
 
@@ -132,58 +98,34 @@ launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
 - `Dockerfile`：Docker 映像檔配置
 - `docker-compose.yml`：Docker Compose 配置
 - `.env`：環境變數配置
-- `data/rss_bot.db`：SQLite 資料庫（訂閱資訊）
-- `logs/`：日誌目錄
-  - `bot.log`：一般日誌
-  - `bot.error.log`：錯誤日誌
+- `rss_bot.db`：SQLite 資料庫（訂閱資訊）
+- `bot.log`：運行日誌
+- `bot.error.log`：錯誤日誌
 
 ## 資料持久化
 
-### Docker 部署
 - 資料庫文件：`./data/rss_bot.db`
 - 日誌文件：`./logs/`
 
-### 直接部署
-- 資料庫文件：`rss_bot.db`
-- 日誌文件：`bot.log` 和 `bot.error.log`
-
 ## 故障排除
 
-### Docker 部署
-1. 檢查容器狀態：
+### 檢查容器狀態
 ```bash
 docker-compose ps
 ```
 
-2. 查看日誌：
+### 查看日誌
 ```bash
 docker-compose logs -f
 ```
 
-3. 重新啟動服務：
-```bash
-docker-compose restart
-```
+### 常見問題
+1. Bot 無法接收命令：
+   - 確保容器正在運行
+   - 檢查 Telegram Token 是否正確
+   - 重新啟動 Telegram 應用
 
-### 直接部署
-1. 檢查進程：
-```bash
-ps aux | grep "python telegram_rss_bot.py"
-```
-
-2. 查看日誌：
-```bash
-cat bot.log bot.error.log
-```
-
-### macOS 服務
-1. 檢查服務狀態：
-```bash
-launchctl list | grep telegram
-```
-
-2. 重新啟動服務：
-```bash
-launchctl unload ~/Library/LaunchAgents/com.telegram.rssbot.plist
-launchctl load ~/Library/LaunchAgents/com.telegram.rssbot.plist
-``` 
+2. 容器無法啟動：
+   - 檢查日誌中的錯誤信息
+   - 確認環境變數設置正確
+   - 確保必要的目錄權限正確 

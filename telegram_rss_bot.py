@@ -183,7 +183,7 @@ def subscribe(update: Update, context: CallbackContext) -> None:
             update.message.reply_text('無法解析此 RSS feed，請確認 URL 是否正確')
             logger.error(f"無法解析 feed: {feed_url}, 錯誤: {feed.bozo_exception}")
             return
-
+        
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('INSERT OR REPLACE INTO subscriptions (chat_id, feed_url, last_entry) VALUES (?, ?, ?)',
@@ -209,7 +209,7 @@ def list_subscriptions(update: Update, context: CallbackContext) -> None:
     if not subscriptions:
         update.message.reply_text('您目前沒有任何訂閱')
         return
-
+    
     message = '您的訂閱列表：\n\n'
     for sub in subscriptions:
         message += f'- {sub[0]}\n'
@@ -241,35 +241,35 @@ def send_user_update(context: CallbackContext, feed_title, entry):
     if not user_id:
         logger.warning("未設定用戶 ID，無法發送更新")
         return
-
+    
     try:
         title = entry.get('title', '無標題')
         link = entry.get('link', '')
         published = entry.get('published', '未知日期')
         
-        if 'summary' in entry:
-            summary = entry.summary
-        elif 'description' in entry:
-            summary = entry.description
-        else:
-            summary = ''
-        
-        summary = summary.replace('<p>', '').replace('</p>', '\n\n')
-        summary = summary[:200] + '...' if len(summary) > 200 else summary
-        
+                    if 'summary' in entry:
+                        summary = entry.summary
+                    elif 'description' in entry:
+                        summary = entry.description
+                    else:
+                        summary = ''
+                    
+                    summary = summary.replace('<p>', '').replace('</p>', '\n\n')
+                    summary = summary[:200] + '...' if len(summary) > 200 else summary
+                    
         message = f"📢 <b>{feed_title}</b>\n\n"
-        message += f"<b>{title}</b>\n"
+                    message += f"<b>{title}</b>\n"
         message += f"📅 {published}\n\n"
-        message += f"{summary}\n\n"
+                    message += f"{summary}\n\n"
         message += f"🔗 <a href='{link}'>閱讀更多</a>"
-        
-        context.bot.send_message(
-            chat_id=user_id,
-            text=message,
-            parse_mode=telegram.ParseMode.HTML,
-            disable_web_page_preview=False
-        )
-    except Exception as e:
+                    
+                    context.bot.send_message(
+                        chat_id=user_id,
+                        text=message,
+                        parse_mode=telegram.ParseMode.HTML,
+                        disable_web_page_preview=False
+                    )
+            except Exception as e:
         logger.error(f"發送用戶更新時發生錯誤: {e}")
 
 def check_feeds(context: CallbackContext) -> None:
@@ -371,19 +371,19 @@ def check_now(update, context):
             if not feed.entries:
                 continue
 
-            entry = feed.entries[0]
+                entry = feed.entries[0]
             title = entry.get('title', '無標題')
-            link = entry.get('link', '')
+                link = entry.get('link', '')
             published = entry.get('published', '未知日期')
-            
+                
             # 處理摘要或內容
-            if 'summary' in entry:
-                summary = entry.summary
-            elif 'description' in entry:
-                summary = entry.description
-            else:
-                summary = ''
-            
+                if 'summary' in entry:
+                    summary = entry.summary
+                elif 'description' in entry:
+                    summary = entry.description
+                else:
+                    summary = ''
+                
             # 清理 HTML 標籤
             summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
             summary = summary.replace('\n', ' ').strip()  # 移除換行符
@@ -396,22 +396,22 @@ def check_now(update, context):
             summary = re.sub(url_pattern, '', summary)
             
             message = f"📢 <b>{feed.feed.title}</b>\n\n"
-            message += f"<b>{title}</b>\n"
+                message += f"<b>{title}</b>\n"
             message += f"📅 {published}\n\n"
-            message += f"{summary}\n\n"
+                message += f"{summary}\n\n"
             
             # 如果有網址，單獨顯示
             if urls:
                 message += "🔗 相關連結：\n"
                 for url in urls:
                     message += f"- {url}\n"
-            
-            context.bot.send_message(
-                chat_id=user_id,
-                text=message,
-                parse_mode=telegram.ParseMode.HTML,
-                disable_web_page_preview=False
-            )
+                
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode=telegram.ParseMode.HTML,
+                    disable_web_page_preview=False
+                )
         except Exception as e:
             logger.error(f"檢查 feed 時出錯: {str(e)}")
             context.bot.send_message(
