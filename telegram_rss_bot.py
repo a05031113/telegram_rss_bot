@@ -20,15 +20,16 @@ import re
 load_dotenv()
 
 # 資料庫設定
-DB_FILE = os.getenv('DB_FILE', 'rss_bot.db')
+DB_FILE = os.getenv('DB_FILE', 'data/rss_bot.db')
 
 # 日誌設定
 LOG_DIR = os.getenv('LOG_DIR', 'logs')
 LOG_FILE = os.path.join(LOG_DIR, 'bot.log')
 ERROR_LOG_FILE = os.path.join(LOG_DIR, 'bot.error.log')
 
-# 確保日誌目錄存在
+# 確保日誌和資料目錄存在
 os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
 
 # 配置日誌
 logging.basicConfig(
@@ -42,8 +43,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# PID 文件路徑
-PID_FILE = 'bot.pid'
+# 檢查環境變數
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+if not TELEGRAM_TOKEN:
+    logger.error("未設置 TELEGRAM_TOKEN 環境變數")
+    sys.exit(1)
 
 @contextmanager
 def get_db():
@@ -247,29 +251,29 @@ def send_user_update(context: CallbackContext, feed_title, entry):
         link = entry.get('link', '')
         published = entry.get('published', '未知日期')
         
-                    if 'summary' in entry:
-                        summary = entry.summary
-                    elif 'description' in entry:
-                        summary = entry.description
-                    else:
-                        summary = ''
-                    
-                    summary = summary.replace('<p>', '').replace('</p>', '\n\n')
-                    summary = summary[:200] + '...' if len(summary) > 200 else summary
-                    
+        if 'summary' in entry:
+            summary = entry.summary
+        elif 'description' in entry:
+            summary = entry.description
+        else:
+            summary = ''
+        
+        summary = summary.replace('<p>', '').replace('</p>', '\n\n')
+        summary = summary[:200] + '...' if len(summary) > 200 else summary
+        
         message = f"📢 <b>{feed_title}</b>\n\n"
-                    message += f"<b>{title}</b>\n"
+        message += f"<b>{title}</b>\n"
         message += f"📅 {published}\n\n"
-                    message += f"{summary}\n\n"
+        message += f"{summary}\n\n"
         message += f"🔗 <a href='{link}'>閱讀更多</a>"
-                    
-                    context.bot.send_message(
-                        chat_id=user_id,
-                        text=message,
-                        parse_mode=telegram.ParseMode.HTML,
-                        disable_web_page_preview=False
-                    )
-            except Exception as e:
+        
+        context.bot.send_message(
+            chat_id=user_id,
+            text=message,
+            parse_mode=telegram.ParseMode.HTML,
+            disable_web_page_preview=False
+        )
+    except Exception as e:
         logger.error(f"發送用戶更新時發生錯誤: {e}")
 
 def check_feeds(context: CallbackContext) -> None:
@@ -371,19 +375,19 @@ def check_now(update, context):
             if not feed.entries:
                 continue
 
-                entry = feed.entries[0]
+            entry = feed.entries[0]
             title = entry.get('title', '無標題')
-                link = entry.get('link', '')
+            link = entry.get('link', '')
             published = entry.get('published', '未知日期')
-                
+            
             # 處理摘要或內容
-                if 'summary' in entry:
-                    summary = entry.summary
-                elif 'description' in entry:
-                    summary = entry.description
-                else:
-                    summary = ''
-                
+            if 'summary' in entry:
+                summary = entry.summary
+            elif 'description' in entry:
+                summary = entry.description
+            else:
+                summary = ''
+            
             # 清理 HTML 標籤
             summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
             summary = summary.replace('\n', ' ').strip()  # 移除換行符
@@ -396,9 +400,9 @@ def check_now(update, context):
             summary = re.sub(url_pattern, '', summary)
             
             message = f"📢 <b>{feed.feed.title}</b>\n\n"
-                message += f"<b>{title}</b>\n"
+            message += f"<b>{title}</b>\n"
             message += f"📅 {published}\n\n"
-                message += f"{summary}\n\n"
+            message += f"{summary}\n\n"
             
             # 如果有網址，單獨顯示
             if urls:
@@ -425,64 +429,38 @@ def error(update: Update, context: CallbackContext) -> None:
     """處理錯誤"""
     logger.warning(f'Update "{update}" caused error "{context.error}"')
 
-def check_pid():
-    if os.path.exists(PID_FILE):
-        with open(PID_FILE, 'r') as f:
-            old_pid = f.read().strip()
-            if old_pid:
-                # 檢查進程是否仍在運行
-                try:
-                    os.kill(int(old_pid), 0)
-                    print(f"Bot is already running with PID {old_pid}")
-                    sys.exit(1)
-                except OSError:
-                    pass
-    # 寫入當前 PID
-    with open(PID_FILE, 'w') as f:
-        f.write(str(os.getpid()))
-
-def cleanup():
-    # 刪除 PID 文件
-    try:
-        os.remove(PID_FILE)
-    except OSError:
-        pass
-
 def main():
-    """主函數"""
+    """主程序"""
+    logger.info("Bot 啟動中...")
+    
     # 初始化資料庫
     init_db()
     
-    # 獲取環境變數
-    token = os.getenv('TELEGRAM_TOKEN')
-    if not token:
-        logger.error("未設置 TELEGRAM_TOKEN 環境變數")
-        sys.exit(1)
-    
     # 創建 Updater 和 Dispatcher
-    updater = Updater(token)
+    updater = Updater(TELEGRAM_TOKEN)
     dispatcher = updater.dispatcher
-    
-    # 註冊命令處理器
+
+    # 添加命令處理器
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(CommandHandler("showid", show_id))
     dispatcher.add_handler(CommandHandler("subscribe", subscribe))
     dispatcher.add_handler(CommandHandler("list", list_subscriptions))
     dispatcher.add_handler(CommandHandler("unsubscribe", unsubscribe))
     dispatcher.add_handler(CommandHandler("check", check_now))
-    
-    # 註冊錯誤處理器
+
+    # 添加錯誤處理器
     dispatcher.add_error_handler(error)
-    
-    # 啟動排程器
+
+    # 啟動 job queue
     job_queue = updater.job_queue
     job_queue.run_repeating(check_feeds, interval=1200, first=0)  # 每20分鐘檢查一次
-    
-    # 啟動 bot
+    logger.info("已設置定時檢查任務")
+
+    # 開始輪詢
     updater.start_polling()
-    logger.info("Bot 已啟動")
-    
-    # 保持 bot 運行
+    logger.info("Bot 已啟動並開始運行")
+
+    # 運行 bot 直到按 Ctrl-C
     updater.idle()
 
 if __name__ == '__main__':
