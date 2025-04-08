@@ -326,6 +326,11 @@ def check_feeds(context: CallbackContext) -> None:
                 # 移除 HTML 標籤
                 summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
                 summary = summary.replace('\n', ' ').strip()  # 移除換行符
+                
+                # 提取網址
+                url_pattern = r'https?://\S+'
+                urls = re.findall(url_pattern, summary)
+                summary = re.sub(url_pattern, '', summary).strip()
                 summary = ' '.join(summary.split())  # 移除多餘的空白
                 summary = summary[:500] + '...' if len(summary) > 500 else summary
                 
@@ -333,7 +338,14 @@ def check_feeds(context: CallbackContext) -> None:
                 message += f"<b>{title}</b>\n"
                 message += f"📅 {published}\n\n"
                 message += f"{summary}\n\n"
-                message += f"🔗 <a href='{link}'>閱讀更多</a>"
+                
+                # 如果有網址，單獨顯示並設為可點擊
+                if urls:
+                    message += "🔗 相關連結：\n"
+                    for url in urls:
+                        message += f"• <a href='{url}'>點擊查看</a>\n"
+                elif link:  # 如果沒有在內容中找到網址，但有原始連結
+                    message += f"🔗 <a href='{link}'>點擊查看完整內容</a>"
                 
                 try:
                     context.bot.send_message(
@@ -391,31 +403,33 @@ def check_now(update, context):
             # 清理 HTML 標籤
             summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
             summary = summary.replace('\n', ' ').strip()  # 移除換行符
-            summary = ' '.join(summary.split())  # 移除多餘的空白
-            summary = summary[:500] + '...' if len(summary) > 500 else summary
             
-            # 移除網址
+            # 提取網址
             url_pattern = r'https?://\S+'
             urls = re.findall(url_pattern, summary)
-            summary = re.sub(url_pattern, '', summary)
+            summary = re.sub(url_pattern, '', summary).strip()
+            summary = ' '.join(summary.split())  # 移除多餘的空白
+            summary = summary[:500] + '...' if len(summary) > 500 else summary
             
             message = f"📢 <b>{feed.feed.title}</b>\n\n"
             message += f"<b>{title}</b>\n"
             message += f"📅 {published}\n\n"
             message += f"{summary}\n\n"
             
-            # 如果有網址，單獨顯示
+            # 如果有網址，單獨顯示並設為可點擊
             if urls:
                 message += "🔗 相關連結：\n"
                 for url in urls:
-                    message += f"- {url}\n"
-                
-                context.bot.send_message(
-                    chat_id=user_id,
-                    text=message,
-                    parse_mode=telegram.ParseMode.HTML,
-                    disable_web_page_preview=False
-                )
+                    message += f"• <a href='{url}'>點擊查看</a>\n"
+            elif link:  # 如果沒有在內容中找到網址，但有原始連結
+                message += f"🔗 <a href='{link}'>點擊查看完整內容</a>"
+            
+            context.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode=telegram.ParseMode.HTML,
+                disable_web_page_preview=False
+            )
         except Exception as e:
             logger.error(f"檢查 feed 時出錯: {str(e)}")
             context.bot.send_message(
