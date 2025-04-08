@@ -327,13 +327,6 @@ def check_feeds(context: CallbackContext) -> None:
                 summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
                 summary = summary.replace('\n', ' ').strip()  # 移除換行符
                 
-                # 提取網址和互動數
-                url_pattern = r'https?://\S+'
-                urls = re.findall(url_pattern, summary)
-                summary = re.sub(url_pattern, '', summary).strip()
-                summary = ' '.join(summary.split())  # 移除多餘的空白
-                summary = summary[:500] + '...' if len(summary) > 500 else summary
-                
                 # 提取互動數
                 interaction_pattern = r'互動數:.*'
                 interaction = re.search(interaction_pattern, summary)
@@ -358,6 +351,10 @@ def check_feeds(context: CallbackContext) -> None:
                     summary = re.sub(r'#\w+', '', summary).strip()
                     summary = ' '.join(summary.split())  # 移除多餘的空白
                 
+                # 清理摘要
+                summary = ' '.join(summary.split())  # 移除多餘的空白
+                summary = summary[:500] + '...' if len(summary) > 500 else summary
+                
                 message = f"📢 <b>{feed.feed.title}</b>\n\n"
                 message += f"<b>{title}</b>\n"
                 message += f"📅 {published}\n\n"
@@ -376,12 +373,8 @@ def check_feeds(context: CallbackContext) -> None:
                 if interaction_text:
                     message += f"📊 {interaction_text}\n\n"
                 
-                # 如果有網址，單獨顯示並設為可點擊
-                if urls:
-                    message += "🔗 相關連結：\n"
-                    for url in urls:
-                        message += f"• <a href='{url}'>點擊查看</a>\n"
-                elif link:  # 如果沒有在內容中找到網址，但有原始連結
+                # 如果有 Facebook 連結，單獨顯示
+                if link and 'facebook.com' in link:
                     message += f"🔗 <a href='{link}'>點擊查看完整內容</a>"
                 
                 try:
@@ -441,13 +434,6 @@ def check_now(update, context):
             summary = re.sub(r'<[^>]+>', '', summary)  # 移除所有 HTML 標籤
             summary = summary.replace('\n', ' ').strip()  # 移除換行符
             
-            # 提取網址和互動數
-            url_pattern = r'https?://\S+'
-            urls = re.findall(url_pattern, summary)
-            summary = re.sub(url_pattern, '', summary).strip()
-            summary = ' '.join(summary.split())  # 移除多餘的空白
-            summary = summary[:500] + '...' if len(summary) > 500 else summary
-            
             # 提取互動數
             interaction_pattern = r'互動數:.*'
             interaction = re.search(interaction_pattern, summary)
@@ -472,6 +458,10 @@ def check_now(update, context):
                 summary = re.sub(r'#\w+', '', summary).strip()
                 summary = ' '.join(summary.split())  # 移除多餘的空白
             
+            # 清理摘要
+            summary = ' '.join(summary.split())  # 移除多餘的空白
+            summary = summary[:500] + '...' if len(summary) > 500 else summary
+            
             message = f"📢 <b>{feed.feed.title}</b>\n\n"
             message += f"<b>{title}</b>\n"
             message += f"📅 {published}\n\n"
@@ -490,12 +480,8 @@ def check_now(update, context):
             if interaction_text:
                 message += f"📊 {interaction_text}\n\n"
             
-            # 如果有網址，單獨顯示並設為可點擊
-            if urls:
-                message += "🔗 相關連結：\n"
-                for url in urls:
-                    message += f"• <a href='{url}'>點擊查看</a>\n"
-            elif link:  # 如果沒有在內容中找到網址，但有原始連結
+            # 如果有 Facebook 連結，單獨顯示
+            if link and 'facebook.com' in link:
                 message += f"🔗 <a href='{link}'>點擊查看完整內容</a>"
             
             context.bot.send_message(
