@@ -343,9 +343,34 @@ def check_feeds(context: CallbackContext) -> None:
                 else:
                     interaction_text = ''
                 
+                # 提取粉絲數
+                fans_pattern = r'粉絲數:\s*\d+'
+                fans = re.search(fans_pattern, summary)
+                if fans:
+                    summary = summary.replace(fans.group(0), '').strip()
+                    fans_text = fans.group(0)
+                else:
+                    fans_text = ''
+                
+                # 提取標籤
+                tags = re.findall(r'#\w+', summary)
+                if tags:
+                    summary = re.sub(r'#\w+', '', summary).strip()
+                    summary = ' '.join(summary.split())  # 移除多餘的空白
+                
                 message = f"📢 <b>{feed.feed.title}</b>\n\n"
                 message += f"<b>{title}</b>\n"
                 message += f"📅 {published}\n\n"
+                
+                if fans_text:
+                    message += f"👥 {fans_text}\n\n"
+                
+                if tags:
+                    message += "🏷️ 標籤：\n"
+                    for tag in tags:
+                        message += f"• {tag}\n"
+                    message += "\n"
+                
                 message += f"{summary}\n\n"
                 
                 if interaction_text:
@@ -432,9 +457,34 @@ def check_now(update, context):
             else:
                 interaction_text = ''
             
+            # 提取粉絲數
+            fans_pattern = r'粉絲數:\s*\d+'
+            fans = re.search(fans_pattern, summary)
+            if fans:
+                summary = summary.replace(fans.group(0), '').strip()
+                fans_text = fans.group(0)
+            else:
+                fans_text = ''
+            
+            # 提取標籤
+            tags = re.findall(r'#\w+', summary)
+            if tags:
+                summary = re.sub(r'#\w+', '', summary).strip()
+                summary = ' '.join(summary.split())  # 移除多餘的空白
+            
             message = f"📢 <b>{feed.feed.title}</b>\n\n"
             message += f"<b>{title}</b>\n"
             message += f"📅 {published}\n\n"
+            
+            if fans_text:
+                message += f"👥 {fans_text}\n\n"
+            
+            if tags:
+                message += "🏷️ 標籤：\n"
+                for tag in tags:
+                    message += f"• {tag}\n"
+                message += "\n"
+            
             message += f"{summary}\n\n"
             
             if interaction_text:
